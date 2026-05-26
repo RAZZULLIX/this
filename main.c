@@ -12,11 +12,11 @@
 #include <sys/stat.h>
 
 /* ---------- Configuration ---------- */
-#define TABLE_BITS 28
+#define TABLE_BITS 26
 #define TABLE_SIZE  (1U << TABLE_BITS)
 #define TABLE_MASK  (TABLE_SIZE - 1)
-#define NUM_MIXERS 9                 /* increased from 8 to 9 mixers */
-#define BUF_SIZE   (1 << 20)         /* 1 MiB buffers */
+#define NUM_MIXERS 9
+#define BUF_SIZE   (1 << 20)          /* 1 MiB buffers */
 
 /* ---------- Sigmoid for probability estimation ---------- */
 static inline int squish_sigmoid(int prediction)
@@ -375,6 +375,10 @@ int main(int argc, char **argv)
     for (int i = 0; i < NUM_MIXERS; ++i) {
         free(weights[i]);
     }
+
+    /* silence unused variable warnings */
+    (void)last_bit;
+    (void)c_prev_byte;
 
     return 0;
 }
