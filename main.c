@@ -21,7 +21,8 @@
 /* ---------- Sigmoid for probability estimation ---------- */
 static inline int squish_sigmoid(int prediction)
 {
-    prediction >>= 6;                   /* scale to [-2048, 2047] */
+    /* shift right by 5 for finer resolution */
+    prediction >>= 5;                   /* scale to [-2048, 2047] */
     if (prediction < -2047) return 1;    /* 1/4096 */
     if (prediction > 2047)  return 4094;  /* 4094/4096 */
     return prediction + 2048;            /* 1..4094 */
@@ -121,6 +122,15 @@ static uint8_t c_last_byte = 0;
 static uint8_t c_prev_byte = 0;
 static int last_bit = 0;
 
+/* ---------- Helper: Clip weight updates to avoid overflow ---------- */
+static inline void upd_weight(int32_t *w, int delta)
+{
+    int32_t val = *w + delta;
+    if (val > (1 << 28)) val = (1 << 28);
+    else if (val < -(1 << 28)) val = -(1 << 28);
+    *w = val;
+}
+
 /* ---------- Bit Processing Macros ---------- */
 #define PROCESS_BIT_COMPRESS(bit_idx, ch, c1, c2, c3, c4, c5, c6, enc)           \
     do {                                                                      \
@@ -135,38 +145,42 @@ static int last_bit = 0;
         uint32_t h8 = (c1 ^ (c2 * 0x89012345UL) ^ (c6 * 0x90123456UL) ^ (bit_idx << 24)) & TABLE_MASK; \
         uint32_t h9 = (c1 ^ (c2 * 0x23456789UL) ^ (c3 * 0x34567890UL) ^ (c4 * 0x45678901UL) ^ (c5 * 0x56789012UL) ^ (c6 * 0x67890123UL)) & TABLE_MASK; \
         int ctx_idx = ((c3 << 8) | c2) & 0xFFFF;                              \
-        int pred = (int)weights[0][h1] +                                    \
-                   (int)weights[1][h2] * 3 +                                 \
-                   (int)weights[2][h3] * 5 +                                 \
-                   (int)weights[3][h4] * 7 +                                 \
-                   (int)weights[4][h5] * 9 +                                 \
-                   (int)weights[5][h6] * 11 +                                \
-                   (int)weights[6][h7] * 13 +                                \
-                   (int)weights[7][h8] * 15 +                                \
-                   (int)weights[8][h9] * 17 +                                \
-                   (int)weights_context[c_last_byte][bit_idx] +              \
-                   (int)weights_context2[c2][bit_idx] +                      \
-                   (int)weights_context3[c_last_byte][last_bit][bit_idx] +   \
-                   (int)weights_context4[c3][bit_idx] +                      \
-                   (int)weights_context5[ctx_idx][bit_idx];                 \
+        int64_t pred64 = (int64_t)weights[0][h1] + \
+                         (int64_t)weights[1][h2] * 3 + \
+                         (int64_t)weights[2][h3] * 5 + \
+                         (int64_t)weights[3][h4] * 7 + \
+                         (int64_t)weights[4][h5] * 9 + \
+                         (int64_t)weights[5][h6] * 11 + \
+                         (int64_t)weights[6][h7] * 13 + \
+                         (int64_t)weights[7][h8] * 15 + \
+                         (int64_t)weights[8][h9] * 17 + \
+                         (int64_t)weights_context[c_last_byte][bit_idx] + \
+                         (int64_t)weights_context2[c2][bit_idx] + \
+                         (int64_t)weights_context3[c_last_byte][last_bit][bit_idx] + \
+                         (int64_t)weights_context4[c3][bit_idx] + \
+                         (int64_t)weights_context5[ctx_idx][bit_idx]; \
+        int pred; \
+        if (pred64 > INT_MAX) pred = INT_MAX; \
+        else if (pred64 < INT_MIN) pred = INT_MIN; \
+        else pred = (int)pred64; \
         int prob = squish_sigmoid(pred);                                      \
         encode_bit(enc, bit, prob);                                           \
         int error = (bit << 12) - prob;                                       \
-        int delta = error / 16;                                               \
-        weights[0][h1] += delta;                                             \
-        weights[1][h2] += delta;                                             \
-        weights[2][h3] += delta;                                             \
-        weights[3][h4] += delta;                                             \
-        weights[4][h5] += delta;                                             \
-        weights[5][h6] += delta;                                             \
-        weights[6][h7] += delta;                                             \
-        weights[7][h8] += delta;                                             \
-        weights[8][h9] += delta;                                             \
-        weights_context[c_last_byte][bit_idx] += delta;                       \
-        weights_context2[c2][bit_idx] += delta;                               \
-        weights_context3[c_last_byte][last_bit][bit_idx] += delta;             \
-        weights_context4[c3][bit_idx] += delta;                               \
-        weights_context5[ctx_idx][bit_idx] += delta;                          \
+        int delta = error / 32;                                               \
+        upd_weight(&weights[0][h1], delta);                                   \
+        upd_weight(&weights[1][h2], delta);                                   \
+        upd_weight(&weights[2][h3], delta);                                   \
+        upd_weight(&weights[3][h4], delta);                                   \
+        upd_weight(&weights[4][h5], delta);                                   \
+        upd_weight(&weights[5][h6], delta);                                   \
+        upd_weight(&weights[6][h7], delta);                                   \
+        upd_weight(&weights[7][h8], delta);                                   \
+        upd_weight(&weights[8][h9], delta);                                   \
+        upd_weight(&weights_context[c_last_byte][bit_idx], delta);             \
+        upd_weight(&weights_context2[c2][bit_idx], delta);                    \
+        upd_weight(&weights_context3[c_last_byte][last_bit][bit_idx], delta);  \
+        upd_weight(&weights_context4[c3][bit_idx], delta);                    \
+        upd_weight(&weights_context5[ctx_idx][bit_idx], delta);                \
         last_bit = bit;                                                      \
         c1 = (c1 << 1) | bit;                                                \
     } while (0)
@@ -183,39 +197,43 @@ static int last_bit = 0;
         uint32_t h8 = (c1 ^ (c2 * 0x89012345UL) ^ (c6 * 0x90123456UL) ^ (bit_idx << 24)) & TABLE_MASK; \
         uint32_t h9 = (c1 ^ (c2 * 0x23456789UL) ^ (c3 * 0x34567890UL) ^ (c4 * 0x45678901UL) ^ (c5 * 0x56789012UL) ^ (c6 * 0x67890123UL)) & TABLE_MASK; \
         int ctx_idx = ((c3 << 8) | c2) & 0xFFFF;                              \
-        int pred = (int)weights[0][h1] +                                    \
-                   (int)weights[1][h2] * 3 +                                 \
-                   (int)weights[2][h3] * 5 +                                 \
-                   (int)weights[3][h4] * 7 +                                 \
-                   (int)weights[4][h5] * 9 +                                 \
-                   (int)weights[5][h6] * 11 +                                \
-                   (int)weights[6][h7] * 13 +                                \
-                   (int)weights[7][h8] * 15 +                                \
-                   (int)weights[8][h9] * 17 +                                \
-                   (int)weights_context[c_last_byte][bit_idx] +              \
-                   (int)weights_context2[c2][bit_idx] +                      \
-                   (int)weights_context3[c_last_byte][last_bit][bit_idx] +   \
-                   (int)weights_context4[c3][bit_idx] +                      \
-                   (int)weights_context5[ctx_idx][bit_idx];                 \
+        int64_t pred64 = (int64_t)weights[0][h1] + \
+                         (int64_t)weights[1][h2] * 3 + \
+                         (int64_t)weights[2][h3] * 5 + \
+                         (int64_t)weights[3][h4] * 7 + \
+                         (int64_t)weights[4][h5] * 9 + \
+                         (int64_t)weights[5][h6] * 11 + \
+                         (int64_t)weights[6][h7] * 13 + \
+                         (int64_t)weights[7][h8] * 15 + \
+                         (int64_t)weights[8][h9] * 17 + \
+                         (int64_t)weights_context[c_last_byte][bit_idx] + \
+                         (int64_t)weights_context2[c2][bit_idx] + \
+                         (int64_t)weights_context3[c_last_byte][last_bit][bit_idx] + \
+                         (int64_t)weights_context4[c3][bit_idx] + \
+                         (int64_t)weights_context5[ctx_idx][bit_idx]; \
+        int pred; \
+        if (pred64 > INT_MAX) pred = INT_MAX; \
+        else if (pred64 < INT_MIN) pred = INT_MIN; \
+        else pred = (int)pred64; \
         int prob = squish_sigmoid(pred);                                      \
         int bit = decode_bit(dec, prob);                                      \
         ch |= (bit << (bit_idx));                                            \
         int error = (bit << 12) - prob;                                       \
-        int delta = error / 16;                                               \
-        weights[0][h1] += delta;                                             \
-        weights[1][h2] += delta;                                             \
-        weights[2][h3] += delta;                                             \
-        weights[3][h4] += delta;                                             \
-        weights[4][h5] += delta;                                             \
-        weights[5][h6] += delta;                                             \
-        weights[6][h7] += delta;                                             \
-        weights[7][h8] += delta;                                             \
-        weights[8][h9] += delta;                                             \
-        weights_context[c_last_byte][bit_idx] += delta;                       \
-        weights_context2[c2][bit_idx] += delta;                               \
-        weights_context3[c_last_byte][last_bit][bit_idx] += delta;             \
-        weights_context4[c3][bit_idx] += delta;                               \
-        weights_context5[ctx_idx][bit_idx] += delta;                          \
+        int delta = error / 32;                                               \
+        upd_weight(&weights[0][h1], delta);                                   \
+        upd_weight(&weights[1][h2], delta);                                   \
+        upd_weight(&weights[2][h3], delta);                                   \
+        upd_weight(&weights[3][h4], delta);                                   \
+        upd_weight(&weights[4][h5], delta);                                   \
+        upd_weight(&weights[5][h6], delta);                                   \
+        upd_weight(&weights[6][h7], delta);                                   \
+        upd_weight(&weights[7][h8], delta);                                   \
+        upd_weight(&weights[8][h9], delta);                                   \
+        upd_weight(&weights_context[c_last_byte][bit_idx], delta);             \
+        upd_weight(&weights_context2[c2][bit_idx], delta);                    \
+        upd_weight(&weights_context3[c_last_byte][last_bit][bit_idx], delta);  \
+        upd_weight(&weights_context4[c3][bit_idx], delta);                    \
+        upd_weight(&weights_context5[ctx_idx][bit_idx], delta);                \
         last_bit = bit;                                                      \
         c1 = (c1 << 1) | bit;                                                \
     } while (0)
