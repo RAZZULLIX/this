@@ -13,7 +13,8 @@
 #define HASH_BITS 29
 #define HASH_SIZE (1U << HASH_BITS)
 #define HASH_MASK (HASH_SIZE - 1)
-#define MIN(a,b) ((a)<(b)?(a):(b))
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define NUM_CTX 32
 
 static int16_t *W;
 static uint32_t *lookup1;
@@ -52,7 +53,7 @@ static void init_tables()
         }
     }
     for (int i = -4095; i <= 4095; i++) {
-        double p = 1.0 / (1.0 + exp(-i / 400.0)); /* adjusted scaling factor */
+        double p = 1.0 / (1.0 + exp(-i / 300.0));
         int val = (int)(p * 4095.0);
         if (val < 1) val = 1;
         if (val > 4094) val = 4094;
@@ -71,7 +72,7 @@ static inline uint32_t H(uint32_t id, uint32_t v1, uint32_t v2, uint32_t v3)
 
 static inline int squish_sigmoid(int sum)
 {
-    int v = sum >> 2; /* increased precision */
+    int v = sum >> 4;
     if (v < -4095) v = -4095;
     if (v > 4095) v = 4095;
     return squash[v + 4095];
@@ -210,6 +211,8 @@ int main(int argc, char **argv)
         uint8_t B6 = pos >= 6 ? file_data[pos-6] : 0;
         uint8_t B7 = pos >= 7 ? file_data[pos-7] : 0;
         uint8_t B8 = pos >= 8 ? file_data[pos-8] : 0;
+        uint8_t B9 = pos >= 9 ? file_data[pos-9] : 0;
+        uint8_t B10 = pos >= 10 ? file_data[pos-10] : 0;
 
         uint32_t h5 = 0;
         if (pos >= 5) {
@@ -263,17 +266,17 @@ int main(int argc, char **argv)
             if (match_len1 > 0 && match_pos1 < pos) mb1 = (file_data[match_pos1] >> bit_idx) & 1;
             if (match_len2 > 0 && match_pos2 < pos) mb2 = (file_data[match_pos2] >> bit_idx) & 1;
 
-            uint32_t F[28];
-            F[0] = H(0, c1, 0, 0);
-            F[1] = H(1, c1, B1, 0);
-            F[2] = H(2, c1, B1, B2);
-            F[3] = H(3, c1, B1, B3) ^ H(33, B2, B4, 0);
-            F[4] = H(4, c1, B1, B2) ^ H(44, B3, B4, B5);
-            F[5] = H(5, c1, B1, B2) ^ H(55, B3, B4, B5) ^ H(555, B6, B7, B8);
-            F[6] = H(6, c1, mb1, MIN(dist1, 255));
-            F[7] = H(7, c1, mb2, MIN(dist2, 255));
-            F[8] = H(8, c1, mb1, B1);
-            F[9] = H(9, c1, mb2, B2);
+            int F[NUM_CTX];
+            F[0]  = H(0, c1, 0, 0);
+            F[1]  = H(1, c1, B1, 0);
+            F[2]  = H(2, c1, B1, B2);
+            F[3]  = H(3, c1, B1, B3) ^ H(33, B2, B4, 0);
+            F[4]  = H(4, c1, B1, B2) ^ H(44, B3, B4, B5);
+            F[5]  = H(5, c1, B1, B2) ^ H(55, B3, B4, B5) ^ H(555, B6, B7, B8);
+            F[6]  = H(6, c1, mb1, MIN(dist1, 255));
+            F[7]  = H(7, c1, mb2, MIN(dist2, 255));
+            F[8]  = H(8, c1, mb1, B1);
+            F[9]  = H(9, c1, mb2, B2);
             F[10] = H(10, c1, word_hash & 0xFF, (word_hash >> 8) & 0xFF);
             F[11] = H(11, c1, B1, word_hash & 0xFF);
             F[12] = H(12, c1, B2, B5);
@@ -292,11 +295,13 @@ int main(int argc, char **argv)
             F[25] = H(25, c1, mb2, word_hash & 0xFF);
             F[26] = H(26, c1, mb1, B3);
             F[27] = H(27, c1, mb2, B4);
+            F[28] = H(28, c1, B9, B10);
+            F[29] = H(29, c1, dist1 >> 8, dist2 >> 8);
+            F[30] = H(30, c1, match_len1 & 0xFF, match_len2 & 0xFF);
+            F[31] = H(31, c1, word_hash & 0xFF, B1);
 
             int sum = 0;
-            for (int i = 0; i < 28; i++) {
-                sum += W[F[i]];
-            }
+            for (int i = 0; i < NUM_CTX; ++i) sum += W[F[i]];
 
             int prob_nn = squish_sigmoid(sum);
             int final_prob = prob_nn;
@@ -313,10 +318,10 @@ int main(int argc, char **argv)
             }
 
             int err = (bit << 12) - final_prob;
-            int delta = err / 64;  /* original update step */
+            int delta = err / 32;  /* faster adaptation */
 
             if (delta != 0) {
-                for (int i = 0; i < 28; i++) {
+                for (int i = 0; i < NUM_CTX; ++i) {
                     int32_t val = W[F[i]] + delta;
                     if (val > 32767) val = 32767;
                     else if (val < -32768) val = -32768;
