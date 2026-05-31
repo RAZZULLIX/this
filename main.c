@@ -215,10 +215,11 @@ int main(int argc, char **argv)
         uint8_t B10 = pos >= 10 ? file_data[pos-10] : 0;
 
         uint32_t h5 = 0;
-        if (pos >= 8) {
+        if (pos >= 9) {
             h5 = (B1 * 2654435761U + B2 * 2246822519U +
                   B3 * 3266489917U + B4 * 668265263U + B5 * 19349669U +
-                  B6 * 374761393U + B7 * 3988292384U + B8 * 0x3b9aca00U) & 0x1FFFFFF;
+                  B6 * 374761393U + B7 * 3988292384U + B8 * 0x3b9aca00U +
+                  B9 * 0x6b5d0b0bU) & 0x1FFFFFF;
         }
 
         if (match_len1 > 0) {
@@ -234,7 +235,7 @@ int main(int argc, char **argv)
             } else match_len2 = 0;
         }
 
-        if (pos >= 8) {
+        if (pos >= 9) {
             if (match_len1 == 0) {
                 uint32_t nm1 = lookup1[h5];
                 if (nm1 > 0 && nm1 < pos) {
@@ -318,7 +319,7 @@ int main(int argc, char **argv)
             }
 
             int err = (bit << 12) - prob;
-            int delta = (err + 16) >> 5;
+            int delta = err / 32;
             if (delta != 0) {
                 for (int i = 0; i < NUM_CTX; ++i) {
                     int32_t val = (int32_t)W[F[i]] + delta;
