@@ -72,7 +72,7 @@ static inline uint32_t H(uint32_t id, uint32_t v1, uint32_t v2, uint32_t v3)
 
 static inline int squish_sigmoid(int sum)
 {
-    int v = sum >> 4;
+    int v = sum >> 4; 
     if (v < -4095) v = -4095;
     if (v > 4095) v = 4095;
     return squash[v + 4095];
@@ -95,15 +95,17 @@ static inline void init_encoder(FastBitCoder *enc, FILE *f)
 static inline void encode_bit(FastBitCoder *enc, int bit, int prob)
 {
     uint32_t range = enc->high - enc->low;
-    uint32_t split = (uint32_t)(((uint64_t)range * prob) >> 16);
+    uint32_t split = (range >> 12) * (uint32_t)prob;
+
     if (bit) {
         enc->high = enc->low + split;
     } else {
         enc->low  = enc->low + split + 1;
     }
+
     while ((enc->low ^ enc->high) < 0x01000000U) {
         fputc((int)(enc->low >> 24), enc->f);
-        enc->low <<= 8;
+        enc->low  <<= 8;
         enc->high = (enc->high << 8) | 0xFFU;
     }
 }
@@ -132,9 +134,11 @@ static inline void init_decoder(FastBitCoder *dec, FILE *f)
 static inline int decode_bit(FastBitCoder *dec, int prob)
 {
     uint32_t range = dec->high - dec->low;
-    uint32_t split = (uint32_t)(((uint64_t)range * prob) >> 16);
+    uint32_t split = (range >> 12) * (uint32_t)prob;
+
     uint32_t abs_split = dec->low + split;
     int bit;
+
     if (dec->code <= abs_split) {
         dec->high = abs_split;
         bit = 1;
@@ -142,6 +146,7 @@ static inline int decode_bit(FastBitCoder *dec, int prob)
         dec->low  = abs_split + 1;
         bit = 0;
     }
+
     while ((dec->low ^ dec->high) < 0x01000000U) {
         dec->low  <<= 8;
         dec->high = (dec->high << 8) | 0xFFU;
@@ -155,16 +160,21 @@ static inline int decode_bit(FastBitCoder *dec, int prob)
 int main(int argc, char **argv)
 {
     if (argc < 4) return 1;
+
     W = (int16_t *)calloc(HASH_SIZE, sizeof(int16_t));
     lookup1 = (uint32_t *)calloc(1 << 25, sizeof(uint32_t));
     lookup2 = (uint32_t *)calloc(1 << 25, sizeof(uint32_t));
     if (!W || !lookup1 || !lookup2) return 1;
+
     init_tables();
+
     FILE *fin  = fopen(argv[2], "rb");
     FILE *fout = fopen(argv[3], "wb");
     if (!fin || !fout) return 1;
+
     bool is_compress = (argv[1][0] == 'c');
     uint32_t file_size = 0;
+
     if (is_compress) {
         struct stat st;
         if (stat(argv[2], &st) != 0) return 1;
@@ -173,20 +183,26 @@ int main(int argc, char **argv)
     } else {
         if (fread(&file_size, 1, 4, fin) != 4) return 1;
     }
+
     uint8_t *file_data = (uint8_t *)malloc((size_t)file_size + 1024);
     if (!file_data) return 1;
+
     if (is_compress) {
         if (fread(file_data, 1, file_size, fin) != file_size) return 1;
     }
+
     FastBitCoder coder;
     if (is_compress) init_encoder(&coder, fout);
     else             init_decoder(&coder, fin);
+
     uint32_t match_pos1 = 0, match_pos2 = 0;
     int match_len1 = 0, match_len2 = 0;
     uint32_t word_hash = 0;
+
     for (uint32_t pos = 0; pos < file_size; ++pos) {
         uint8_t ch = 0;
         if (is_compress) ch = file_data[pos];
+
         uint8_t B1 = pos >= 1 ? file_data[pos-1] : 0;
         uint8_t B2 = pos >= 2 ? file_data[pos-2] : 0;
         uint8_t B3 = pos >= 3 ? file_data[pos-3] : 0;
@@ -195,11 +211,13 @@ int main(int argc, char **argv)
         uint8_t B6 = pos >= 6 ? file_data[pos-6] : 0;
         uint8_t B7 = pos >= 7 ? file_data[pos-7] : 0;
         uint8_t B8 = pos >= 8 ? file_data[pos-8] : 0;
+
         uint32_t h5 = 0;
         if (pos >= 5) {
             h5 = (B1 * 2654435761U + B2 * 2246822519U + 
                   B3 * 3266489917U + B4 * 668265263U + B5 * 19349669U) & 0x1FFFFFF;
         }
+
         if (match_len1 > 0) {
             if (pos >= 1 && file_data[match_pos1] == B1) {
                 match_len1++;
@@ -212,6 +230,7 @@ int main(int argc, char **argv)
                 match_pos2++;
             } else match_len2 = 0;
         }
+
         if (pos >= 5) {
             if (match_len1 == 0) {
                 uint32_t nm1 = lookup1[h5];
@@ -234,11 +253,13 @@ int main(int argc, char **argv)
             lookup2[h5] = lookup1[h5];
             lookup1[h5] = pos;
         }
+
         int c1 = 1;
         for (int bit_idx = 7; bit_idx >= 0; --bit_idx) {
             int mb1 = 2, mb2 = 2;
             if (match_len1 > 0 && match_pos1 < pos) mb1 = (file_data[match_pos1] >> bit_idx) & 1;
             if (match_len2 > 0 && match_pos2 < pos) mb2 = (file_data[match_pos2] >> bit_idx) & 1;
+
             uint32_t F[28];
             F[0] = H(0, c1, 0, 0);
             F[1] = H(1, c1, B1, 0);
@@ -268,67 +289,64 @@ int main(int argc, char **argv)
             F[25] = H(25, c1, mb2, word_hash & 0xFF);
             F[26] = H(26, c1, mb1, B3);
             F[27] = H(27, c1, mb2, B4);
+
             int sum = 0;
             for (int i = 0; i < 28; i++) {
                 sum += W[F[i]];
             }
+
             int prob_nn = squish_sigmoid(sum);
-            int q = prob_nn >> 7;
-            int p1 = apm1[c1][q];
-            int p2 = apm2[B1][q];
-            int p3 = apm3[(B1 << 8) | c1][q];
-            int p4 = apm4[(B2 << 8) | c1][q];
-            int pm1 = apm_m1[mb1][q];
-            int pm2 = apm_m2[mb2][q];
-            int final_prob = (prob_nn * 10 + p1 + p2 + p3 * 2 + p4 * 2 + pm1 * 2 + pm2) / 19;
+            int q = prob_nn >> 7; // 0..31
+
+            /* Use only the base probability from W */
+            int final_prob = prob_nn;
             if (final_prob < 1) final_prob = 1;
             if (final_prob > 4094) final_prob = 4094;
-            int prob16 = final_prob << 4;
-            if (prob16 < 1) prob16 = 1;
-            if (prob16 > 65534) prob16 = 65534;
+
             int bit;
             if (is_compress) {
                 bit = (ch >> bit_idx) & 1;
-                encode_bit(&coder, bit, prob16);
+                encode_bit(&coder, bit, final_prob);
             } else {
-                bit = decode_bit(&coder, prob16);
+                bit = decode_bit(&coder, final_prob);
                 ch |= (bit << bit_idx);
             }
+
             int err = (bit << 12) - final_prob;
-            int delta = err >> 5;
+            int delta = err >> 4; // more aggressive update
+
             for (int i = 0; i < 28; i++) {
                 int32_t val = W[F[i]] + delta;
                 if (val > 32767) val = 32767;
                 else if (val < -32768) val = -32768;
                 W[F[i]] = (int16_t)val;
             }
-            int bit_scaled = bit << 12;
-            apm1[c1][q] += (bit_scaled - apm1[c1][q]) >> 4;
-            apm2[B1][q] += (bit_scaled - apm2[B1][q]) >> 4;
-            apm3[(B1 << 8) | c1][q] += (bit_scaled - apm3[(B1 << 8) | c1][q]) >> 4;
-            apm4[(B2 << 8) | c1][q] += (bit_scaled - apm4[(B2 << 8) | c1][q]) >> 4;
-            apm_m1[mb1][q] += (bit_scaled - apm_m1[mb1][q]) >> 4;
-            apm_m2[mb2][q] += (bit_scaled - apm_m2[mb2][q]) >> 4;
+
             c1 = (c1 << 1) | bit;
         }
+
         file_data[pos] = ch;
         if (!is_compress) {
             fputc(ch, fout);
         }
+
         if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
             word_hash = word_hash * 31 + ch;
         } else {
             word_hash = 0;
         }
     }
+
     if (is_compress) {
         flush_encoder(&coder);
     }
+
     free(file_data);
     free(W);
     free(lookup1);
     free(lookup2);
     fclose(fin);
     fclose(fout);
+
     return 0;
 }
