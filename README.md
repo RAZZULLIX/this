@@ -1,10 +1,10 @@
 # Best result
 
-date: 2026-05-26 11:19:18 CEST
-iteration number: 2336
-compressed size of enwik9: 214013046
-compression time: 1582.22 s
-max RAM compression: 2421313536 bytes
-decompression time: 1047.02 s
-max RAM decompression: 2421317632 bytes
-position in the large text compression benchmark: 98
+- **Date:** 2026-05-31 04:39:36 CEST
+- **Iteration number:** 3571
+- **Compressed size of enwik9:** 186564880
+- **Compression time:** 2915.34 s
+- **Max RAM compression:** 2352517120 bytes
+- **Decompression time:** 2911.22 s
+- **Max RAM decompression:** 2356441088 bytes
+- **Position in the large text compression benchmark:** 68
