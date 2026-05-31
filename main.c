@@ -72,7 +72,7 @@ static inline uint32_t H(uint32_t id, uint32_t v1, uint32_t v2, uint32_t v3)
 
 static inline int squish_sigmoid(int sum)
 {
-    int v = sum >> 4; 
+    int v = sum >> 4;
     if (v < -4095) v = -4095;
     if (v > 4095) v = 4095;
     return squash[v + 4095];
@@ -95,14 +95,12 @@ static inline void init_encoder(FastBitCoder *enc, FILE *f)
 static inline void encode_bit(FastBitCoder *enc, int bit, int prob)
 {
     uint32_t range = enc->high - enc->low;
-    uint32_t split = (range >> 12) * (uint32_t)prob;
-
+    uint32_t split = (uint32_t)(((uint64_t)range * (uint64_t)prob) >> 12);
     if (bit) {
         enc->high = enc->low + split;
     } else {
         enc->low  = enc->low + split + 1;
     }
-
     while ((enc->low ^ enc->high) < 0x01000000U) {
         fputc((int)(enc->low >> 24), enc->f);
         enc->low  <<= 8;
@@ -134,11 +132,9 @@ static inline void init_decoder(FastBitCoder *dec, FILE *f)
 static inline int decode_bit(FastBitCoder *dec, int prob)
 {
     uint32_t range = dec->high - dec->low;
-    uint32_t split = (range >> 12) * (uint32_t)prob;
-
+    uint32_t split = (uint32_t)(((uint64_t)range * (uint64_t)prob) >> 12);
     uint32_t abs_split = dec->low + split;
     int bit;
-
     if (dec->code <= abs_split) {
         dec->high = abs_split;
         bit = 1;
@@ -146,7 +142,6 @@ static inline int decode_bit(FastBitCoder *dec, int prob)
         dec->low  = abs_split + 1;
         bit = 0;
     }
-
     while ((dec->low ^ dec->high) < 0x01000000U) {
         dec->low  <<= 8;
         dec->high = (dec->high << 8) | 0xFFU;
@@ -214,7 +209,7 @@ int main(int argc, char **argv)
 
         uint32_t h5 = 0;
         if (pos >= 5) {
-            h5 = (B1 * 2654435761U + B2 * 2246822519U + 
+            h5 = (B1 * 2654435761U + B2 * 2246822519U +
                   B3 * 3266489917U + B4 * 668265263U + B5 * 19349669U) & 0x1FFFFFF;
         }
 
@@ -296,9 +291,8 @@ int main(int argc, char **argv)
             }
 
             int prob_nn = squish_sigmoid(sum);
-            int q = prob_nn >> 7; // 0..31
+            int q = prob_nn >> 7; /* 0..31, unused */
 
-            /* Use only the base probability from W */
             int final_prob = prob_nn;
             if (final_prob < 1) final_prob = 1;
             if (final_prob > 4094) final_prob = 4094;
@@ -313,7 +307,7 @@ int main(int argc, char **argv)
             }
 
             int err = (bit << 12) - final_prob;
-            int delta = err >> 4; // more aggressive update
+            int delta = err >> 4;
 
             for (int i = 0; i < 28; i++) {
                 int32_t val = W[F[i]] + delta;
