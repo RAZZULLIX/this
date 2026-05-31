@@ -1,5 +1,4 @@
 #include <immintrin.h>
-
 #include <stdbool.h>
 #include <math.h>
 #include <assert.h>
@@ -95,12 +94,14 @@ static inline void init_encoder(FastBitCoder *enc, FILE *f)
 static inline void encode_bit(FastBitCoder *enc, int bit, int prob)
 {
     uint32_t range = enc->high - enc->low;
-    uint32_t split = (uint32_t)(((uint64_t)range * (uint64_t)prob) >> 12);
+    uint32_t split = (range >> 12) * (uint32_t)prob;
+
     if (bit) {
         enc->high = enc->low + split;
     } else {
         enc->low  = enc->low + split + 1;
     }
+
     while ((enc->low ^ enc->high) < 0x01000000U) {
         fputc((int)(enc->low >> 24), enc->f);
         enc->low  <<= 8;
@@ -132,9 +133,11 @@ static inline void init_decoder(FastBitCoder *dec, FILE *f)
 static inline int decode_bit(FastBitCoder *dec, int prob)
 {
     uint32_t range = dec->high - dec->low;
-    uint32_t split = (uint32_t)(((uint64_t)range * (uint64_t)prob) >> 12);
+    uint32_t split = (range >> 12) * (uint32_t)prob;
+
     uint32_t abs_split = dec->low + split;
     int bit;
+
     if (dec->code <= abs_split) {
         dec->high = abs_split;
         bit = 1;
@@ -142,6 +145,7 @@ static inline int decode_bit(FastBitCoder *dec, int prob)
         dec->low  = abs_split + 1;
         bit = 0;
     }
+
     while ((dec->low ^ dec->high) < 0x01000000U) {
         dec->low  <<= 8;
         dec->high = (dec->high << 8) | 0xFFU;
@@ -249,6 +253,11 @@ int main(int argc, char **argv)
             lookup1[h5] = pos;
         }
 
+        /* Compute distance contexts after match updates */
+        uint32_t dist1 = 0, dist2 = 0;
+        if (match_len1 > 0 && match_pos1 < pos) dist1 = pos - match_pos1;
+        if (match_len2 > 0 && match_pos2 < pos) dist2 = pos - match_pos2;
+
         int c1 = 1;
         for (int bit_idx = 7; bit_idx >= 0; --bit_idx) {
             int mb1 = 2, mb2 = 2;
@@ -262,8 +271,8 @@ int main(int argc, char **argv)
             F[3] = H(3, c1, B1, B3) ^ H(33, B2, B4, 0);
             F[4] = H(4, c1, B1, B2) ^ H(44, B3, B4, B5);
             F[5] = H(5, c1, B1, B2) ^ H(55, B3, B4, B5) ^ H(555, B6, B7, B8);
-            F[6] = H(6, c1, mb1, MIN(match_len1, 255));
-            F[7] = H(7, c1, mb2, MIN(match_len2, 255));
+            F[6] = H(6, c1, mb1, MIN(dist1, 255));
+            F[7] = H(7, c1, mb2, MIN(dist2, 255));
             F[8] = H(8, c1, mb1, B1);
             F[9] = H(9, c1, mb2, B2);
             F[10] = H(10, c1, word_hash & 0xFF, (word_hash >> 8) & 0xFF);
@@ -291,8 +300,6 @@ int main(int argc, char **argv)
             }
 
             int prob_nn = squish_sigmoid(sum);
-            int q = prob_nn >> 7; /* 0..31, unused */
-
             int final_prob = prob_nn;
             if (final_prob < 1) final_prob = 1;
             if (final_prob > 4094) final_prob = 4094;
@@ -307,13 +314,15 @@ int main(int argc, char **argv)
             }
 
             int err = (bit << 12) - final_prob;
-            int delta = err >> 4;
+            int delta = err / 64;  /* more conservative update */
 
-            for (int i = 0; i < 28; i++) {
-                int32_t val = W[F[i]] + delta;
-                if (val > 32767) val = 32767;
-                else if (val < -32768) val = -32768;
-                W[F[i]] = (int16_t)val;
+            if (delta != 0) {
+                for (int i = 0; i < 28; i++) {
+                    int32_t val = W[F[i]] + delta;
+                    if (val > 32767) val = 32767;
+                    else if (val < -32768) val = -32768;
+                    W[F[i]] = (int16_t)val;
+                }
             }
 
             c1 = (c1 << 1) | bit;
