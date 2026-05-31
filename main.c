@@ -95,8 +95,7 @@ static inline void init_encoder(FastBitCoder *enc, FILE *f)
 static inline void encode_bit(FastBitCoder *enc, int bit, int prob)
 {
     uint32_t range = enc->high - enc->low;
-    uint64_t temp = (uint64_t)range * (uint64_t)prob;
-    uint32_t split = (uint32_t)(temp >> 12);
+    uint32_t split = (range >> 12) * (uint32_t)prob;
 
     if (bit) {
         enc->high = enc->low + split;
@@ -135,8 +134,7 @@ static inline void init_decoder(FastBitCoder *dec, FILE *f)
 static inline int decode_bit(FastBitCoder *dec, int prob)
 {
     uint32_t range = dec->high - dec->low;
-    uint64_t temp = (uint64_t)range * (uint64_t)prob;
-    uint32_t split = (uint32_t)(temp >> 12);
+    uint32_t split = (range >> 12) * (uint32_t)prob;
 
     uint32_t abs_split = dec->low + split;
     int bit;
@@ -320,7 +318,7 @@ int main(int argc, char **argv)
             }
 
             int err = (bit << 12) - prob;
-            int delta = err / 32;
+            int delta = (err + 16) >> 5;
             if (delta != 0) {
                 for (int i = 0; i < NUM_CTX; ++i) {
                     int32_t val = (int32_t)W[F[i]] + delta;
