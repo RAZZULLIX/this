@@ -29,7 +29,7 @@ static uint16_t apm_m2[3][32];
 
 static int squash[8192];
 
-static void init_tables()
+static void init_tables(void)
 {
     for (int i = 0; i < 256; i++) {
         for (int j = 0; j < 32; j++) {
@@ -63,9 +63,9 @@ static void init_tables()
 
 static inline uint32_t H(uint32_t id, uint32_t v1, uint32_t v2, uint32_t v3)
 {
-    uint32_t h = id * 0x12345679 + v1 * 0x5bd1e995 + v2 * 0x27d4eb2d + v3 * 0x924c290d;
+    uint32_t h = id * 0x12345679U + v1 * 0x5bd1e995U + v2 * 0x27d4eb2dU + v3 * 0x924c290dU;
     h ^= (h >> 15);
-    h *= 0x85ebca6b;
+    h *= 0x85ebca6bU;
     h ^= (h >> 13);
     return h & HASH_MASK;
 }
@@ -215,9 +215,10 @@ int main(int argc, char **argv)
         uint8_t B10 = pos >= 10 ? file_data[pos-10] : 0;
 
         uint32_t h5 = 0;
-        if (pos >= 5) {
+        if (pos >= 8) {
             h5 = (B1 * 2654435761U + B2 * 2246822519U +
-                  B3 * 3266489917U + B4 * 668265263U + B5 * 19349669U) & 0x1FFFFFF;
+                  B3 * 3266489917U + B4 * 668265263U + B5 * 19349669U +
+                  B6 * 374761393U + B7 * 3988292384U + B8 * 0x3b9aca00U) & 0x1FFFFFF;
         }
 
         if (match_len1 > 0) {
@@ -233,7 +234,7 @@ int main(int argc, char **argv)
             } else match_len2 = 0;
         }
 
-        if (pos >= 5) {
+        if (pos >= 8) {
             if (match_len1 == 0) {
                 uint32_t nm1 = lookup1[h5];
                 if (nm1 > 0 && nm1 < pos) {
@@ -303,26 +304,24 @@ int main(int argc, char **argv)
             int sum = 0;
             for (int i = 0; i < NUM_CTX; ++i) sum += W[F[i]];
 
-            int prob_nn = squish_sigmoid(sum);
-            int final_prob = prob_nn;
-            if (final_prob < 1) final_prob = 1;
-            if (final_prob > 4094) final_prob = 4094;
+            int prob = squish_sigmoid(sum);
+            if (prob < 1) prob = 1;
+            if (prob > 4094) prob = 4094;
 
             int bit;
             if (is_compress) {
                 bit = (ch >> bit_idx) & 1;
-                encode_bit(&coder, bit, final_prob);
+                encode_bit(&coder, bit, prob);
             } else {
-                bit = decode_bit(&coder, final_prob);
+                bit = decode_bit(&coder, prob);
                 ch |= (bit << bit_idx);
             }
 
-            int err = (bit << 12) - final_prob;
-            int delta = err / 32;  /* faster adaptation */
-
+            int err = (bit << 12) - prob;
+            int delta = err / 32;
             if (delta != 0) {
                 for (int i = 0; i < NUM_CTX; ++i) {
-                    int32_t val = W[F[i]] + delta;
+                    int32_t val = (int32_t)W[F[i]] + delta;
                     if (val > 32767) val = 32767;
                     else if (val < -32768) val = -32768;
                     W[F[i]] = (int16_t)val;
@@ -337,16 +336,16 @@ int main(int argc, char **argv)
             fputc(ch, fout);
         }
 
-        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9')) {
+        if ((ch >= 'a' && ch <= 'z') ||
+            (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9')) {
             word_hash = word_hash * 31 + ch;
         } else {
             word_hash = 0;
         }
     }
 
-    if (is_compress) {
-        flush_encoder(&coder);
-    }
+    if (is_compress) flush_encoder(&coder);
 
     free(file_data);
     free(W);
