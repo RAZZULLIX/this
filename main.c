@@ -13,7 +13,7 @@
 #define HASH_BITS 29
 #define HASH_SIZE (1U << HASH_BITS)
 #define HASH_MASK (HASH_SIZE - 1)
-#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#define MIN(a,b) ((a)<(b)?(a):(b))
 
 static int16_t *W;
 static uint32_t *lookup1;
@@ -52,7 +52,7 @@ static void init_tables()
         }
     }
     for (int i = -4095; i <= 4095; i++) {
-        double p = 1.0 / (1.0 + exp(-i / 300.0));
+        double p = 1.0 / (1.0 + exp(-i / 400.0)); /* adjusted scaling factor */
         int val = (int)(p * 4095.0);
         if (val < 1) val = 1;
         if (val > 4094) val = 4094;
@@ -71,7 +71,7 @@ static inline uint32_t H(uint32_t id, uint32_t v1, uint32_t v2, uint32_t v3)
 
 static inline int squish_sigmoid(int sum)
 {
-    int v = sum >> 4;
+    int v = sum >> 2; /* increased precision */
     if (v < -4095) v = -4095;
     if (v > 4095) v = 4095;
     return squash[v + 4095];
@@ -253,7 +253,6 @@ int main(int argc, char **argv)
             lookup1[h5] = pos;
         }
 
-        /* Compute distance contexts after match updates */
         uint32_t dist1 = 0, dist2 = 0;
         if (match_len1 > 0 && match_pos1 < pos) dist1 = pos - match_pos1;
         if (match_len2 > 0 && match_pos2 < pos) dist2 = pos - match_pos2;
@@ -314,7 +313,7 @@ int main(int argc, char **argv)
             }
 
             int err = (bit << 12) - final_prob;
-            int delta = err / 64;  /* more conservative update */
+            int delta = err / 64;  /* original update step */
 
             if (delta != 0) {
                 for (int i = 0; i < 28; i++) {
