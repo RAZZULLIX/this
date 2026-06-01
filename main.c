@@ -1,14 +1,15 @@
 #include <immintrin.h>
-#include <stdbool.h>
-#include <math.h>
-#include <assert.h>
 #include <limits.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
-#include <time.h>
 #include <sys/stat.h>
+#include <time.h>
+#include <math.h>
+#include <assert.h>
 
 #define HASH_BITS 30
 #define HASH_SIZE (1U << HASH_BITS)
@@ -28,14 +29,14 @@ static int squash[8192];
 
 static void init_tables(void)
 {
-    for (int i = -4095; i <= 4095; i++) {
+    for (int i = -4095; i <= 4095; ++i) {
         double p = 1.0 / (1.0 + exp(-i / 300.0));
         int val = (int)(p * 4095.0);
         if (val < 1) val = 1;
         if (val > 4094) val = 4094;
         squash[i + 4095] = val;
     }
-    for (int i = 0; i < 65536; i++) {
+    for (int i = 0; i < 65536; ++i) {
         apm1[i] = 2048;
         apm2[i] = 2048;
         apm3[i] = 2048;
@@ -46,9 +47,9 @@ static void init_tables(void)
 static inline uint32_t H(uint32_t id, uint32_t v1, uint32_t v2, uint32_t v3)
 {
     uint32_t h = id * 0x12345679U + v1 * 0x5bd1e995U + v2 * 0x27d4eb2dU + v3 * 0x924c290dU;
-    h ^= (h >> 15);
+    h ^= h >> 15;
     h *= 0x85ebca6bU;
-    h ^= (h >> 13);
+    h ^= h >> 13;
     return h & HASH_MASK;
 }
 
@@ -172,7 +173,7 @@ int main(int argc, char **argv)
         if (fread(&file_size, 1, 4, fin) != 4) return 1;
     }
 
-    uint8_t *file_data = (uint8_t *)calloc((size_t)file_size + 1024, sizeof(uint8_t));
+    uint8_t *file_data = (uint8_t *)malloc((size_t)file_size + 1024);
     if (!file_data) return 1;
 
     if (is_compress) {
@@ -211,23 +212,27 @@ int main(int argc, char **argv)
         uint32_t h4 = 0, h6 = 0;
         if (pos >= 4) {
             h4 = (B1 * 2654435761U + B2 * 2246822519U +
-                  B3 * 3266489917U + B4 * 668265263U) & ((1 << 28) - 1);
+                  B3 * 3266489917U + B4 * 668265263U) & ((1U << 28) - 1);
         }
         if (pos >= 6) {
-            h6 = (h4 * 19349669U + B5 * 83492791U + B6 * 1192837U) & ((1 << 28) - 1);
+            h6 = (h4 * 19349669U + B5 * 83492791U + B6 * 1192837U) & ((1U << 28) - 1);
         }
 
         if (match_len1 > 0) {
             if (pos >= 1 && file_data[match_pos1] == B1) {
                 match_len1++;
                 match_pos1++;
-            } else match_len1 = 0;
+            } else {
+                match_len1 = 0;
+            }
         }
         if (match_len2 > 0) {
             if (pos >= 1 && file_data[match_pos2] == B1) {
                 match_len2++;
                 match_pos2++;
-            } else match_len2 = 0;
+            } else {
+                match_len2 = 0;
+            }
         }
 
         if (pos >= 6) {
@@ -294,20 +299,20 @@ int main(int argc, char **argv)
             F[27] = H(27, c1, mb1, mb2);
             F[28] = H(28, c1, mb1, match_len1 > 255 ? 255 : match_len1);
             F[29] = H(29, c1, mb2, match_len2 > 255 ? 255 : match_len2);
-            F[30] = H(30, c1, word_hash & 0xFF, 0);
-            F[31] = H(31, c1, (word_hash >> 8) & 0xFF, 0);
-            F[32] = H(32, c1, word_hash & 0xFF, B1);
+            F[30] = H(30, c1, (uint32_t)(word_hash & 0xFF), 0);
+            F[31] = H(31, c1, (uint32_t)((word_hash >> 8) & 0xFF), 0);
+            F[32] = H(32, c1, (uint32_t)(word_hash & 0xFF), B1);
             F[33] = H(33, c1, B1 & 0xDF, B2 & 0xDF);
-            F[34] = H(34, c1, B1 & 0xDF, word_hash & 0xFF);
+            F[34] = H(34, c1, B1 & 0xDF, (uint32_t)(word_hash & 0xFF));
             F[35] = H(35, c1, B1, B5) ^ H(355, B9, B13, 0);
             F[36] = H(36, c1, B2, B6) ^ H(366, B10, B14, 0);
             F[37] = H(37, c1, B3, B7) ^ H(377, B11, B15, 0);
-            F[38] = H(38, c1, mb1, word_hash & 0xFF);
-            F[39] = H(39, c1, mb2, word_hash & 0xFF);
+            F[38] = H(38, c1, mb1, (uint32_t)(word_hash & 0xFF));
+            F[39] = H(39, c1, mb2, (uint32_t)(word_hash & 0xFF));
             F[40] = H(40, c1, B1, B3) ^ H(400, B2, B4, 0);
             F[41] = H(41, c1, B5, B10) ^ H(411, B15, 0, 0);
-            F[42] = H(42, c1, dist1 > 255 ? 255 : dist1, mb1);
-            F[43] = H(43, c1, dist2 > 255 ? 255 : dist2, mb2);
+            F[42] = H(42, c1, dist1, mb1);
+            F[43] = H(43, c1, dist2, mb2);
             F[44] = H(44, c1, dist1 >> 8, mb1);
             F[45] = H(45, c1, dist2 >> 8, mb2);
             F[46] = H(46, c1, B1 & 0xE0, B2 & 0xE0);
@@ -322,12 +327,11 @@ int main(int argc, char **argv)
             int p_bin = prob_nn >> 4;
 
             int apm1_val = apm1[(B1 << 8) | p_bin];
-            int apm2_val = apm2[((c1 & 0xFF) << 8) | p_bin];
+            int apm2_val = apm2[(c1 << 8) | p_bin];
             int apm3_val = apm3[(B2 << 8) | p_bin];
             int apm4_val = apm4[(B3 << 8) | p_bin];
 
             int final_prob = (prob_nn * 4 + apm1_val * 2 + apm2_val * 2 + apm3_val + apm4_val) / 10;
-
             if (final_prob < 1) final_prob = 1;
             if (final_prob > 4094) final_prob = 4094;
 
@@ -346,7 +350,7 @@ int main(int argc, char **argv)
 
             if (delta != 0) {
                 for (int i = 0; i < NUM_CTX; ++i) {
-                    int32_t val = (int32_t)W[F[i]] + delta;
+                    int32_t val = W[F[i]] + delta;
                     if (val > 32767) val = 32767;
                     else if (val < -32768) val = -32768;
                     W[F[i]] = (int16_t)val;
@@ -354,7 +358,7 @@ int main(int argc, char **argv)
             }
 
             apm1[(B1 << 8) | p_bin] += (target - apm1_val) / 16;
-            apm2[((c1 & 0xFF) << 8) | p_bin] += (target - apm2_val) / 16;
+            apm2[(c1 << 8) | p_bin] += (target - apm2_val) / 16;
             apm3[(B2 << 8) | p_bin] += (target - apm3_val) / 16;
             apm4[(B3 << 8) | p_bin] += (target - apm4_val) / 16;
 
