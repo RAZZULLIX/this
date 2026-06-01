@@ -319,7 +319,12 @@ int main(int argc, char **argv)
             }
 
             int err = (bit << 12) - prob;
-            int delta = err / 32;
+            int delta;
+            if (err >= 0) {
+                delta = (err + 16) >> 5;
+            } else {
+                delta = -(((-err) + 16) >> 5);
+            }
             if (delta != 0) {
                 for (int i = 0; i < NUM_CTX; ++i) {
                     int32_t val = (int32_t)W[F[i]] + delta;
