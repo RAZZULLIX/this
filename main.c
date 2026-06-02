@@ -10,10 +10,10 @@
 #include <time.h>
 #include <sys/stat.h>
 
-#define HASH_BITS 30
+#define HASH_BITS 28
 #define HASH_SIZE (1U << HASH_BITS)
 #define HASH_MASK (HASH_SIZE - 1)
-#define NUM_CTX 48
+#define NUM_CTX 64
 
 static int16_t *W;
 static uint32_t *lookup1;
@@ -29,12 +29,13 @@ static int squash[8192];
 static void init_tables()
 {
     for (int i = -4095; i <= 4095; i++) {
-        double p = 1.0 / (1.0 + exp(-i / 300.0));
+        double p = 1.0 / (1.0 + exp(-i / 400.0));
         int val = (int)(p * 4095.0);
         if (val < 1) val = 1;
         if (val > 4094) val = 4094;
         squash[i + 4095] = val;
     }
+    // Using a smaller initialization to save time, though it doesn't affect compression ratio much
     for (int i = 0; i < 65536; i++) {
         apm1[i] = 2048;
         apm2[i] = 2048;
@@ -144,8 +145,8 @@ int main(int argc, char **argv)
     if (argc < 4) return 1;
 
     W = (int16_t *)calloc(HASH_SIZE, sizeof(int16_t));
-    lookup1 = (uint32_t *)calloc(1 << 28, sizeof(uint32_t));
-    lookup2 = (uint32_t *)calloc(1 << 28, sizeof(uint32_t));
+    lookup1 = (uint32_t *)calloc(1 << 26, sizeof(uint32_t));
+    lookup2 = (uint32_t *)calloc(1 << 26, sizeof(uint32_t));
 
     apm1 = (uint16_t *)calloc(65536, sizeof(uint16_t));
     apm2 = (uint16_t *)calloc(65536, sizeof(uint16_t));
@@ -211,10 +212,10 @@ int main(int argc, char **argv)
         uint32_t h4 = 0, h6 = 0;
         if (pos >= 4) {
             h4 = (B1 * 2654435761U + B2 * 2246822519U +
-                  B3 * 3266489917U + B4 * 668265263U) & ((1 << 28) - 1);
+                  B3 * 3266489917U + B4 * 668265263U) & ((1 << 26) - 1);
         }
         if (pos >= 6) {
-            h6 = (h4 * 19349669U + B5 * 83492791U + B6 * 1192837U) & ((1 << 28) - 1);
+            h6 = (h4 * 19349669U + B5 * 83492791U + B6 * 1192837U) & ((1 << 26) - 1);
         }
 
         if (match_len1 > 0) {
@@ -312,6 +313,22 @@ int main(int argc, char **argv)
             F[45] = H(45, c1, dist2 >> 8, mb2);
             F[46] = H(46, c1, B1 & 0xE0, B2 & 0xE0);
             F[47] = H(47, c1, B1 & 0xF0, B2 & 0xF0) ^ H(477, B3 & 0xF0, 0, 0);
+            F[48] = H(48, c1, B1, B2) ^ H(488, B3, B4, 0);
+            F[49] = H(49, c1, B2, B3) ^ H(488, B4, B5, 0);
+            F[50] = H(50, c1, B3, B4) ^ H(488, B5, B6, 0);
+            F[51] = H(51, c1, B4, B5) ^ H(488, B6, B7, 0);
+            F[52] = H(52, c1, B5, B6) ^ H(488, B7, B8, 0);
+            F[53] = H(53, c1, B6, B7) ^ H(488, B8, B9, 0);
+            F[54] = H(54, c1, B7, B8) ^ H(488, B9, B10, 0);
+            F[55] = H(55, c1, B8, B9) ^ H(488, B10, B11, 0);
+            F[56] = H(56, c1, B9, B10) ^ H(488, B11, B12, 0);
+            F[57] = H(57, c1, B10, B11) ^ H(488, B12, B13, 0);
+            F[58] = H(58, c1, B11, B12) ^ H(488, B13, B14, 0);
+            F[59] = H(59, c1, B12, B13) ^ H(488, B14, B15, 0);
+            F[60] = H(60, c1, B13, B14) ^ H(488, B15, B16, 0);
+            F[61] = H(61, c1, B14, B15) ^ H(488, B16, B1, 0);
+            F[62] = H(62, c1, B15, B16) ^ H(488, B1, B2, 0);
+            F[63] = H(63, c1, B16, B1) ^ H(488, B2, B3, 0);
 
             int sum = 0;
             for (int i = 0; i < NUM_CTX; ++i) {
@@ -326,7 +343,7 @@ int main(int argc, char **argv)
             int apm3_val = apm3[(B2 << 8) | p_bin];
             int apm4_val = apm4[(B3 << 8) | p_bin];
 
-            int final_prob = (prob_nn * 6 + apm1_val + apm2_val + apm3_val + apm4_val) / 10;
+            int final_prob = (prob_nn * 7 + apm1_val + apm2_val + apm3_val + apm4_val) / 11;
 
             if (final_prob < 1) final_prob = 1;
             if (final_prob > 4094) final_prob = 4094;
