@@ -1,5 +1,4 @@
 #include <immintrin.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -502,7 +501,7 @@ int main(int argc, char **argv)
 
             int target = bit ? 4095 : 0;
             int err = target - final_prob;
-            int delta = err / 32;
+            int delta = err / 64;   // reduced update strength
 
             if (delta != 0) {
                 for (int i = 0; i < NUM_CTX; ++i) {
