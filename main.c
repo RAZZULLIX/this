@@ -1,6 +1,5 @@
 #include <string.h>
 #include <immintrin.h>
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -146,7 +145,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < 24; i++) {
         apm[i] = (uint16_t *)calloc(65536, sizeof(uint16_t));
         if (!apm[i]) return 1;
-        for (int j = 0; j < 65536; j++) apm[i][j] = 2047 << 4;
+        for (int j = 0; j < 65536; j++) apm[i][j] = 2047 << 4;   /* use 2047 to avoid overflow */
     }
 
     if (!W || !lookup1 || !lookup2 || !lookup3 || !lookup4 || !lookup5 || !lookup6) return 1;
@@ -172,8 +171,8 @@ int main(int argc, char **argv)
         if (fread(file_data, 1, file_size, fin) != file_size) return 1;
     }
 
-    uint8_t global_scale = 32;  // tighter adaptation
-    uint8_t apm_scale = 6;      // faster learning
+    uint8_t global_scale = 64;
+    uint8_t apm_scale = 7;
 
     if (is_compress) {
         uint32_t b_counts[256] = {0};
@@ -189,7 +188,7 @@ int main(int argc, char **argv)
             }
         }
 
-        if (entropy > 6.5) { 
+        if (entropy > 6.5) {
             global_scale = 44;
             apm_scale = 6;
         } else if (entropy > 5.5) {
@@ -257,7 +256,7 @@ int main(int argc, char **argv)
             h12 = (h10 * 19349669U + B11 * 83492791U + B12 * 1192837U) & ((1U << 27) - 1);
         }
         if (pos >= 16) {
-            h16 = (h12 * 19349669U + B13 * 83492791U + B14 * 1192837U + B15 * 668265263U + B16 * 2246822519U) & ((1U << 27) - 1);
+            h16 = (h12 * 19349669U + B13 * 83492791U + B14 * 83492791U + B15 * 668265263U + B16 * 2246822519U) & ((1U << 27) - 1);
         }
 
         if (match_len1 > 0) { if (pos >= 1 && file_data[match_pos1] == B1) { match_len1++; match_pos1++; } else match_len1 = 0; }
@@ -549,7 +548,7 @@ int main(int argc, char **argv)
 
             int target = bit ? 4095 : 0;
             int err = target - final_prob;
-            
+
             int delta = err / global_scale;
             if (delta != 0) {
                 for (int i = 0; i < NUM_CTX; ++i) {
