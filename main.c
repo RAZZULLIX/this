@@ -1,9 +1,10 @@
+#include <string.h>
 #include <immintrin.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <string.h>
 #include <math.h>
 #include <assert.h>
 #include <limits.h>
@@ -145,7 +146,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < 24; i++) {
         apm[i] = (uint16_t *)calloc(65536, sizeof(uint16_t));
         if (!apm[i]) return 1;
-        for (int j = 0; j < 65536; j++) apm[i][j] = 2048 << 4;
+        for (int j = 0; j < 65536; j++) apm[i][j] = 2047 << 4;
     }
 
     if (!W || !lookup1 || !lookup2 || !lookup3 || !lookup4 || !lookup5 || !lookup6) return 1;
@@ -171,15 +172,15 @@ int main(int argc, char **argv)
         if (fread(file_data, 1, file_size, fin) != file_size) return 1;
     }
 
-    uint8_t global_scale = 64;
-    uint8_t apm_scale = 7;
-    
+    uint8_t global_scale = 32;  // tighter adaptation
+    uint8_t apm_scale = 6;      // faster learning
+
     if (is_compress) {
         uint32_t b_counts[256] = {0};
         for(uint32_t p = 0; p < file_size; p++) {
             b_counts[file_data[p]]++;
         }
-        
+
         double entropy = 0.0;
         for(int i = 0; i < 256; i++) {
             if(b_counts[i] > 0) {
@@ -187,7 +188,7 @@ int main(int argc, char **argv)
                 entropy -= prob * log2(prob);
             }
         }
-        
+
         if (entropy > 6.5) { 
             global_scale = 44;
             apm_scale = 6;
@@ -198,7 +199,7 @@ int main(int argc, char **argv)
             global_scale = 68;
             apm_scale = 8;
         }
-        
+
         fwrite(&global_scale, 1, 1, fout);
         fwrite(&apm_scale, 1, 1, fout);
     } else {
@@ -552,7 +553,7 @@ int main(int argc, char **argv)
             int delta = err / global_scale;
             if (delta != 0) {
                 for (int i = 0; i < NUM_CTX; ++i) {
-                    int32_t val = W[F[i]] + delta;
+                    int32_t val = (int32_t)W[F[i]] + delta;
                     if (val > 32767) val = 32767;
                     else if (val < -32768) val = -32768;
                     W[F[i]] = (int16_t)val;
