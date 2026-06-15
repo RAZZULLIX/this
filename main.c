@@ -188,22 +188,31 @@ int main(int argc, char **argv)
             }
         }
 
+        int scale_idx;
         if (entropy > 6.5) {
-            global_scale = 44;
-            apm_scale = 6;
+            scale_idx = 0;
         } else if (entropy > 5.5) {
-            global_scale = 60;
-            apm_scale = 7;
+            scale_idx = 1;
         } else {
-            global_scale = 68;
-            apm_scale = 8;
+            scale_idx = 2;
         }
-
-        fwrite(&global_scale, 1, 1, fout);
-        fwrite(&apm_scale, 1, 1, fout);
+        switch(scale_idx) {
+            case 0: global_scale = 44; apm_scale = 6; break;
+            case 1: global_scale = 60; apm_scale = 7; break;
+            case 2: global_scale = 68; apm_scale = 8; break;
+        }
+        uint8_t scale_byte = (scale_idx << 4) | scale_idx;
+        fwrite(&scale_byte, 1, 1, fout);
     } else {
-        if (fread(&global_scale, 1, 1, fin) != 1) return 1;
-        if (fread(&apm_scale, 1, 1, fin) != 1) return 1;
+        uint8_t scale_byte;
+        if (fread(&scale_byte, 1, 1, fin) != 1) return 1;
+        int scale_idx = (scale_byte >> 4) & 0xF;
+        switch(scale_idx) {
+            case 0: global_scale = 44; apm_scale = 6; break;
+            case 1: global_scale = 60; apm_scale = 7; break;
+            case 2: global_scale = 68; apm_scale = 8; break;
+            default: return 1;
+        }
     }
 
     FastBitCoder coder;
@@ -518,31 +527,12 @@ int main(int argc, char **argv)
             if (final_prob < 1) final_prob = 1;
             if (final_prob > 4094) final_prob = 4094;
 
-            int p_bin2 = final_prob >> 4;
-            apm_val[18] = apm[18][(c1 << 8) | p_bin2] >> 4;
-            apm_val[19] = apm[19][(B1 << 8) | p_bin2] >> 4;
-            apm_val[20] = apm[20][(mbyte1 << 8) | p_bin2] >> 4;
-            apm_val[21] = apm[21][(mbyte2 << 8) | p_bin2] >> 4;
-            apm_val[22] = apm[22][(mbyte5 << 8) | p_bin2] >> 4;
-            apm_val[23] = apm[23][(mbyte6 << 8) | p_bin2] >> 4;
-
-            int final_prob2 = (final_prob * 8 + 
-                               apm_val[18] * 2 + 
-                               apm_val[19] * 2 + 
-                               apm_val[20] * 1 + 
-                               apm_val[21] * 1 + 
-                               apm_val[22] * 1 + 
-                               apm_val[23] * 1) >> 4;
-
-            if (final_prob2 < 1) final_prob2 = 1;
-            if (final_prob2 > 4094) final_prob2 = 4094;
-
             int bit;
             if (is_compress) {
                 bit = (ch >> bit_idx) & 1;
-                encode_bit(&coder, bit, final_prob2);
+                encode_bit(&coder, bit, final_prob);
             } else {
-                bit = decode_bit(&coder, final_prob2);
+                bit = decode_bit(&coder, final_prob);
                 ch |= (bit << bit_idx);
             }
 
@@ -578,13 +568,6 @@ int main(int argc, char **argv)
             apm[15][(mb1 << 8) | p_bin] += (target_scaled - apm[15][(mb1 << 8) | p_bin]) / apm_scale;
             apm[16][(mb2 << 8) | p_bin] += (target_scaled - apm[16][(mb2 << 8) | p_bin]) / apm_scale;
             apm[17][(mb3 << 8) | p_bin] += (target_scaled - apm[17][(mb3 << 8) | p_bin]) / apm_scale;
-
-            apm[18][(c1 << 8) | p_bin2] += (target_scaled - apm[18][(c1 << 8) | p_bin2]) / apm_scale;
-            apm[19][(B1 << 8) | p_bin2] += (target_scaled - apm[19][(B1 << 8) | p_bin2]) / apm_scale;
-            apm[20][(mbyte1 << 8) | p_bin2] += (target_scaled - apm[20][(mbyte1 << 8) | p_bin2]) / apm_scale;
-            apm[21][(mbyte2 << 8) | p_bin2] += (target_scaled - apm[21][(mbyte2 << 8) | p_bin2]) / apm_scale;
-            apm[22][(mbyte5 << 8) | p_bin2] += (target_scaled - apm[22][(mbyte5 << 8) | p_bin2]) / apm_scale;
-            apm[23][(mbyte6 << 8) | p_bin2] += (target_scaled - apm[23][(mbyte6 << 8) | p_bin2]) / apm_scale;
 
             c1 = (c1 << 1) | bit;
         }
