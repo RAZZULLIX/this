@@ -251,15 +251,13 @@ int main(int argc, char **argv)
         } else {
             scale_idx = 2;
         }
-        /* The following switch is kept for compatibility but the scales are overridden below */
+        /* Set global_scale based on entropy, but keep apm_scale at 12 to avoid overflow */
         switch(scale_idx) {
             case 0: global_scale = 44; apm_scale = 6; break;
             case 1: global_scale = 60; apm_scale = 7; break;
             case 2: global_scale = 68; apm_scale = 8; break;
         }
-        /* Override scales for actual use */
-        global_scale = 64;
-        apm_scale = 12;
+        apm_scale = 12; /* Override to avoid overflow */
 
         uint8_t scale_byte = (uint8_t)((scale_idx << 4) | scale_idx);
         if (fwrite(&scale_byte, 1, 1, fout) != 1) { fclose(fin); fclose(fout); free(file_data); return 1; }
@@ -273,9 +271,7 @@ int main(int argc, char **argv)
             case 2: global_scale = 68; apm_scale = 8; break;
             default: fclose(fin); fclose(fout); free(file_data); return 1;
         }
-        /* Override scales for actual use */
-        global_scale = 64;
-        apm_scale = 12;
+        apm_scale = 12; /* Override to avoid overflow */
     }
 
     FastBitCoder coder;
