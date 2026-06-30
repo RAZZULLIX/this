@@ -13,7 +13,7 @@
 #define HASH_BITS 30
 #define HASH_SIZE (1ULL << HASH_BITS)
 #define HASH_MASK (HASH_SIZE - 1)
-#define NUM_CTX 140   /* Reduced number of contexts */
+#define NUM_CTX 140
 
 static int16_t *W;
 static uint32_t *lookup1;
@@ -25,13 +25,13 @@ static uint32_t *lookup6;
 static uint16_t *apm[26];
 static int squash[8192];
 
-/* New Context State */
+/* Enhanced Context State */
 static uint64_t sparse_hist[256];
 static uint64_t sparse_ctx;
 static uint64_t interval_ctx1, interval_ctx2;
 static uint64_t indirect_tbl[1 << 16];
 static uint64_t indirect_ctx1, indirect_ctx2;
-static uint8_t bracket_stack[16], bracket_dist[16];
+static uint8_t bracket_stack[32], bracket_dist[32];
 static uint32_t bracket_top;
 static uint64_t combined_ctx;
 static uint64_t bit_ctx;
@@ -41,11 +41,10 @@ static unsigned char state_table[1024];
 static uint8_t current_state = 0;
 
 /* Quote & Word Tracking */
-static uint8_t quote_stack[16];
+static uint8_t quote_stack[32];
 static uint32_t quote_top = 0;
 static uint32_t word_hash = 0;
 static uint32_t word_len = 0;
-static uint8_t word_boundary = 0;
 
 static void init_tables(void)
 {
@@ -221,14 +220,14 @@ int main(int argc, char **argv)
     }
 
     uint8_t *file_data = (uint8_t *)calloc((size_t)file_size + 1024, sizeof(uint8_t));
-    if (!file_data) { fclose(fin); fclose(fout); return 1; }
+    if (!file_data) { fclose(fin); fclose(fout); free(file_data); return 1; }
 
     if (is_compress) {
         if (fread(file_data, 1, file_size, fin) != file_size) { fclose(fin); fclose(fout); free(file_data); return 1; }
     }
 
     uint8_t global_scale = 64;
-    uint8_t apm_scale = 7;
+    uint8_t apm_scale = 12; /* Adjusted for better compression */
 
     if (is_compress) {
         uint32_t b_counts[256] = {0};
@@ -252,11 +251,16 @@ int main(int argc, char **argv)
         } else {
             scale_idx = 2;
         }
+        /* The following switch is kept for compatibility but the scales are overridden below */
         switch(scale_idx) {
             case 0: global_scale = 44; apm_scale = 6; break;
             case 1: global_scale = 60; apm_scale = 7; break;
             case 2: global_scale = 68; apm_scale = 8; break;
         }
+        /* Override scales for actual use */
+        global_scale = 64;
+        apm_scale = 12;
+
         uint8_t scale_byte = (uint8_t)((scale_idx << 4) | scale_idx);
         if (fwrite(&scale_byte, 1, 1, fout) != 1) { fclose(fin); fclose(fout); free(file_data); return 1; }
     } else {
@@ -269,6 +273,9 @@ int main(int argc, char **argv)
             case 2: global_scale = 68; apm_scale = 8; break;
             default: fclose(fin); fclose(fout); free(file_data); return 1;
         }
+        /* Override scales for actual use */
+        global_scale = 64;
+        apm_scale = 12;
     }
 
     FastBitCoder coder;
@@ -581,27 +588,7 @@ int main(int argc, char **argv)
             F[136] = H(136, c1, bracket_top, bracket_top > 0 ? bracket_stack[bracket_top-1] : 0);
             F[137] = H(137, c1, bracket_top > 0 ? bracket_dist[bracket_top-1] : 0, B1);
             F[138] = H(138, c1, combined_ctx & 0xFFFF, (combined_ctx >> 16) & 0xFFFF);
-            F[139] = H(139, c1, bit_ctx & 0xFF, (bit_ctx >> 8) & 0xFF);
-            F[140] = H(140, c1, sparse_hist[0] & 0xFF, interval_ctx1 & 0xFF);
-            F[141] = H(141, c1, indirect_ctx1 & 0xFF, bracket_top);
-            F[142] = H(142, c1, combined_ctx & 0xFF, bit_ctx & 0xFF);
-            F[143] = H(143, c1, sparse_hist[0] & 0xFF, mb1);
-            F[144] = H(144, c1, interval_ctx2 & 0xFF, mb2);
-            F[145] = H(145, c1, indirect_ctx2 & 0xFF, mb3);
-            F[146] = H(146, c1, bracket_top, mb4);
-            F[147] = H(147, c1, combined_ctx & 0xFF, mb5);
-            F[148] = H(148, c1, bit_ctx & 0xFF, mb6);
-            F[149] = H(149, c1, sparse_hist[0] & 0xFF, dist1 & 0xFF);
-            F[150] = H(150, c1, interval_ctx1 & 0xFF, dist2 & 0xFF);
-            F[151] = H(151, c1, indirect_ctx1 & 0xFF, dist3 & 0xFF);
-            F[152] = H(152, c1, bracket_top, dist4 & 0xFF);
-            F[153] = H(153, c1, combined_ctx & 0xFF, dist5 & 0xFF);
-            F[154] = H(154, c1, bit_ctx & 0xFF, dist6 & 0xFF);
-            F[155] = H(155, c1, sparse_hist[0] & 0xFF, word_hash & 0xFF);
-            F[156] = H(156, c1, interval_ctx2 & 0xFF, (word_hash >> 8) & 0xFF);
-            F[157] = H(157, c1, indirect_ctx2 & 0xFF, (word_hash >> 16) & 0xFF);
-            F[158] = H(158, c1, combined_ctx & 0xFF, (word_hash >> 24) & 0xFF);
-            F[159] = H(159, c1, bit_ctx & 0xFF, match_len1 > 255 ? 255 : match_len1);
+            F[139] = H(139, c1, bit_ctx & 0xFF, (bit_ctx >> 8) & 0xFFFF);
 
             int sum = 0;
             for (int i = 0; i < NUM_CTX; ++i) {
@@ -714,7 +701,7 @@ int main(int argc, char **argv)
                 if (bracket_dist[bracket_top-1] < 255) bracket_dist[bracket_top-1]++;
             }
         }
-        if (open && bracket_top < 16) {
+        if (open && bracket_top < 32) {
             bracket_stack[bracket_top] = open;
             bracket_dist[bracket_top] = 0;
             bracket_top++;
@@ -723,7 +710,7 @@ int main(int argc, char **argv)
         if (ch == '\'' || ch == '"') {
             if (quote_top > 0 && quote_stack[quote_top-1] == ch) {
                 quote_top--;
-            } else if (quote_top < 16) {
+            } else if (quote_top < 32) {
                 quote_stack[quote_top++] = ch;
             }
         }
